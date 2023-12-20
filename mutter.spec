@@ -1,3 +1,5 @@
+%define _disable_source_fetch 0
+
 %global glib_version 2.75.1
 %global gtk3_version 3.19.8
 %global gtk4_version 4.0.0
@@ -7,27 +9,35 @@
 %global pipewire_version 0.3.33
 %global lcms2_version 2.6
 %global colord_version 1.4.5
-%global mutter_api_version 12
+%global libei_version 1.0.0
+%global mutter_api_version 13
 
 %global tarball_version %%(echo %{version} | tr '~' '.')
+%global toolchain clang
 
 Name:          mutter
-Version:       45.1
-Release:       %autorelease
+Version:       45.2
+Release:       1%{?dist}.tripplebuffer
 Summary:       Window and compositing manager based on Clutter
 
 License:       GPLv2+
-URL:           http://www.gnome.org
-Source0:       http://download.gnome.org/sources/%{name}/45/%{name}-%{tarball_version}.tar.xz
+URL:           https://www.gnome.org
+Source0:       https://download.gnome.org/sources/%{name}/45/%{name}-%{tarball_version}.tar.xz
 
 # Work-around for OpenJDK's compliance test
-Patch0:        0001-window-actor-Special-case-shaped-Java-windows.patch
+Patch: https://raw.githubusercontent.com/TrixieUA/copr-trixieua/main/mutter-patched/patches/f39/mutter/0001-window-actor-Special-case-shaped-Java-windows.patch
 
-# https://bugzilla.redhat.com/show_bug.cgi?id=1936991
-Patch1:        mutter-42.alpha-disable-tegra.patch
+# Draft: Dynamic triple/double buffering (v4) 
+# https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/1441
+Patch: https://raw.githubusercontent.com/TrixieUA/copr-trixieua/main/mutter-patched/patches/f39/mutter/1441.patch
 
-# https://pagure.io/fedora-workstation/issue/79
-Patch2:        0001-place-Always-center-initial-setup-fedora-welcome.patch
+# backports for 45.3
+# https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/3457
+Patch: https://raw.githubusercontent.com/TrixieUA/copr-trixieua/main/mutter-patched/patches/f39/mutter/3457.patch
+
+Patch: https://raw.githubusercontent.com/TrixieUA/copr-trixieua/main/mutter-patched/patches/f38/mutter/mutter_increase_check_alive_timeout.patch
+
+Patch: https://raw.githubusercontent.com/TrixieUA/copr-trixieua/main/mutter-patched/patches/f39/mutter/autorotate.patch
 
 BuildRequires: pkgconfig(gobject-introspection-1.0) >= 1.41.0
 BuildRequires: pkgconfig(sm)
@@ -60,11 +70,9 @@ BuildRequires: pkgconfig(libsystemd)
 BuildRequires: xorg-x11-server-Xorg
 BuildRequires: xorg-x11-server-Xvfb
 BuildRequires: pkgconfig(xkeyboard-config)
-# see src/tests/x11-test.sh
-BuildRequires: zenity
 BuildRequires: desktop-file-utils
 # Bootstrap requirements
-BuildRequires: gtk-doc gettext-devel git-core
+BuildRequires: gettext-devel git-core
 BuildRequires: pkgconfig(libcanberra)
 BuildRequires: pkgconfig(gsettings-desktop-schemas) >= %{gsettings_desktop_schemas_version}
 BuildRequires: pkgconfig(gnome-settings-daemon)
@@ -79,21 +87,26 @@ BuildRequires: pkgconfig(wayland-protocols)
 BuildRequires: pkgconfig(wayland-server)
 BuildRequires: pkgconfig(lcms2) >= %{lcms2_version}
 BuildRequires: pkgconfig(colord) >= %{colord_version}
+BuildRequires: pkgconfig(libei-1.0) >= %{libei_version}
+BuildRequires: pkgconfig(libeis-1.0) >= %{libei_version}
 
 BuildRequires: pkgconfig(json-glib-1.0) >= %{json_glib_version}
 BuildRequires: pkgconfig(libinput) >= %{libinput_version}
 BuildRequires: pkgconfig(xwayland)
+BuildRequires: clang
 
 Requires: control-center-filesystem
 Requires: gsettings-desktop-schemas%{?_isa} >= %{gsettings_desktop_schemas_version}
 Requires: gnome-settings-daemon
-Requires: gtk3%{?_isa} >= %{gtk3_version}
 Requires: gtk4%{?_isa} >= %{gtk4_version}
 Requires: json-glib%{?_isa} >= %{json_glib_version}
 Requires: libinput%{?_isa} >= %{libinput_version}
 Requires: pipewire%{_isa} >= %{pipewire_version}
 Requires: startup-notification
 Requires: dbus
+
+# Need common
+Requires: %{name}-common = %{version}-%{release}
 
 Recommends: mesa-dri-drivers%{?_isa}
 
@@ -103,6 +116,12 @@ Provides: firstboot(windowmanager) = mutter
 # significantly since then.
 Provides: bundled(cogl) = 1.22.0
 Provides: bundled(clutter) = 1.26.0
+
+Conflicts: mutter < 45~beta.1-2
+
+# Make sure dnf updates gnome-shell together with this package; otherwise we
+# might end up with broken gnome-shell installations due to mutter ABI changes.
+Conflicts: gnome-shell < 45~rc
 
 %description
 Mutter is a window and compositing manager that displays and manages
@@ -116,6 +135,14 @@ this reason, Mutter is very extensible via plugins, which are used both
 to add fancy visual effects and to rework the window management
 behaviors to meet the needs of the environment.
 
+%package common
+Summary: Common files used by %{name} and forks of %{name}
+BuildArch: noarch
+Conflicts: mutter < 45~beta.1-2
+
+%description common
+Common files used by Mutter and soft forks of Mutter
+
 %package devel
 Summary: Development package for %{name}
 Requires: %{name}%{?_isa} = %{version}-%{release}
@@ -128,7 +155,9 @@ utilities for testing Metacity/Mutter themes.
 
 %package  tests
 Summary:  Tests for the %{name} package
+Requires: %{name}-devel%{?_isa} = %{version}-%{release}
 Requires: %{name}%{?_isa} = %{version}-%{release}
+Requires: gtk3%{?_isa} >= %{gtk3_version}
 
 %description tests
 The %{name}-tests package contains tests that can be used to verify
@@ -138,6 +167,9 @@ the functionality of the installed %{name} package.
 %autosetup -S git -n %{name}-%{tarball_version}
 
 %build
+export CFLAGS="%{optflags} -O3 -flto=thin"
+export CXXFLAGS="%{optflags} -O3 -flto=thin"
+export LDFLAGS="%{optflags} -O3"
 %meson -Degl_device=true -Dwayland_eglstream=true
 %meson_build
 
@@ -154,11 +186,13 @@ the functionality of the installed %{name} package.
 %{_libdir}/mutter-%{mutter_api_version}/
 %{_libexecdir}/mutter-restart-helper
 %{_libexecdir}/mutter-x11-frames
+%{_mandir}/man1/mutter.1*
+
+%files common
 %{_datadir}/GConf/gsettings/mutter-schemas.convert
 %{_datadir}/glib-2.0/schemas/org.gnome.mutter.gschema.xml
 %{_datadir}/glib-2.0/schemas/org.gnome.mutter.wayland.gschema.xml
 %{_datadir}/gnome-control-center/keybindings/50-mutter-*.xml
-%{_mandir}/man1/mutter.1*
 %{_udevrulesdir}/61-mutter.rules
 
 %files devel
@@ -170,6 +204,3 @@ the functionality of the installed %{name} package.
 %{_libexecdir}/installed-tests/mutter-%{mutter_api_version}
 %{_datadir}/installed-tests/mutter-%{mutter_api_version}
 %{_datadir}/mutter-%{mutter_api_version}/tests
-
-%changelog
-%autochangelog
